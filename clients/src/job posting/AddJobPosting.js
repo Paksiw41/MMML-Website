@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import './AddJobPosting.css';
 import HeaderEmployer from '../Header/HeaderEmployer';
 
@@ -10,11 +10,38 @@ function AddJobPosting() {
     const [country, setCountry] = useState('');
     const [errorMessage, setErrorMessage] = useState('');
     const [successMessage, setSuccessMessage] = useState('');
+    const [isApproved, setIsApproved] = useState(true); // Tracks approval status
+    const [loading, setLoading] = useState(true); // Tracks loading state
+
+    const userId = localStorage.getItem('userId');
+
+    useEffect(() => {
+        const fetchApprovalStatus = async () => {
+            try {
+                const response = await fetch(`http://localhost:8081/api/employers/status/${userId}`);
+                if (response.ok) {
+                    const data = await response.json();
+                    setIsApproved(data.status_id === 1 && data.progress_id === 6); // Update based on backend response
+                } else {
+                    setErrorMessage('Failed to fetch employer status.');
+                }
+            } catch (error) {
+                setErrorMessage('An error occurred while checking your approval status.');
+            } finally {
+                setLoading(false); // Stop loading
+            }
+        };
+
+        if (userId) {
+            fetchApprovalStatus();
+        } else {
+            setErrorMessage('User not authenticated.');
+            setLoading(false); // Stop loading
+        }
+    }, [userId]);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-
-        const userId = localStorage.getItem('userId');
 
         if (!userId) {
             setErrorMessage('User not authenticated.');
@@ -46,6 +73,10 @@ function AddJobPosting() {
                 setSalary('');
                 setCountry('');
                 setSuccessMessage('Job posting created successfully.');
+            } else if (response.status === 403) {
+                const errorData = await response.json();
+                setErrorMessage(errorData.error);
+                setIsApproved(false); // Update approval status
             } else {
                 const errorData = await response.json();
                 setErrorMessage(`Error: ${errorData.error}`);
@@ -55,17 +86,21 @@ function AddJobPosting() {
         }
     };
 
+    if (loading) {
+        return <p>Loading...</p>;
+    }
+
     return (
         <>
-            <HeaderEmployer 
-                userId={localStorage.getItem('userId')} 
-                auth={true} 
+            <HeaderEmployer
+                userId={userId}
+                auth={true}
                 onSignOut={() => {
                     localStorage.clear();
                     window.location.href = '/';
-                }} 
+                }}
             />
-            <div className="main-content"> {/* Add a wrapper for page content */}
+            <div className="main-content">
                 <div className="add-job-posting">
                     <h2>Add Job Posting</h2>
                     <form onSubmit={handleSubmit}>
@@ -77,6 +112,7 @@ function AddJobPosting() {
                                 onChange={(e) => setJobName(e.target.value)}
                                 placeholder="Enter job name"
                                 required
+                                disabled={!isApproved}
                             />
                         </div>
                         <div>
@@ -86,6 +122,7 @@ function AddJobPosting() {
                                 onChange={(e) => setJobDescription(e.target.value)}
                                 placeholder="Enter job description"
                                 required
+                                disabled={!isApproved}
                             />
                         </div>
                         <div>
@@ -95,6 +132,7 @@ function AddJobPosting() {
                                 onChange={(e) => setJobOverview(e.target.value)}
                                 placeholder="Enter job overview"
                                 required
+                                disabled={!isApproved}
                             />
                         </div>
                         <div>
@@ -105,6 +143,7 @@ function AddJobPosting() {
                                 onChange={(e) => setSalary(e.target.value)}
                                 placeholder="Enter salary"
                                 required
+                                disabled={!isApproved}
                             />
                         </div>
                         <div>
@@ -115,9 +154,14 @@ function AddJobPosting() {
                                 onChange={(e) => setCountry(e.target.value)}
                                 placeholder="Enter country"
                                 required
+                                disabled={!isApproved}
                             />
                         </div>
-                        <button type="submit">Submit Job</button>
+                        {!isApproved ? (
+                            <p className="error">You are not yet approved by the admin. Please wait for approval.</p>
+                        ) : (
+                            <button type="submit">Submit Job</button>
+                        )}
                     </form>
                     {errorMessage && <p className="error">{errorMessage}</p>}
                     {successMessage && <p className="success">{successMessage}</p>}

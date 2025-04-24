@@ -8,7 +8,7 @@ const Tabs = ({ activeTab, setActiveTab }) => {
         className={activeTab === 'employees' ? 'active' : ''}
         onClick={() => setActiveTab('employees')}
       >
-        Employees
+        Applicants
       </button>
       <button
         className={activeTab === 'employers' ? 'active' : ''}

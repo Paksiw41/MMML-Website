@@ -22,7 +22,7 @@ app.use(cookieParser());
 const db = mysql.createConnection({
   host: "localhost",
   user: 'root',
-  password: 'root',
+  password: '1234',
   database: 'mydb'
 });
 
@@ -90,6 +90,7 @@ module.exports = verifyUser;
 
 
 
+// Serve static files in the uploads directory
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 app.post(
@@ -344,17 +345,64 @@ app.post('/api/job_postings/AddJobPosting', (req, res) => {
     return res.status(400).json({ error: 'Missing required fields' });
   }
 
-  const sql = 'INSERT INTO job_postings (jobName, jobOverview, jobDescription, salary, country, employer_id) VALUES (?, ?, ?, ?, ?, ?)';
-  const values = [jobName, jobOverview || null, jobDescription, salary, country, employer_id];
+  // Validate employer's status_id and progress_id
+  const validateSql = 'SELECT status_id, progress_id FROM employer WHERE employer_id = ?';
 
-  db.query(sql, values, (err, results) => {
+  db.query(validateSql, [employer_id], (err, results) => {
     if (err) {
-      console.error('Error inserting job posting:', err);
+      console.error('Error fetching employer data:', err);
       return res.status(500).json({ error: 'Database error', details: err.message });
     }
-    res.status(201).json({ message: 'Job posting created successfully', job_id: results.insertId });
+
+    if (results.length === 0) {
+      return res.status(404).json({ error: 'Employer not found' });
+    }
+
+    const { status_id, progress_id } = results[0];
+
+    if (status_id !== 1 || progress_id !== 6) {
+      return res.status(403).json({
+      });
+    }
+
+    // Insert the job posting if validation passes
+    const sql = `
+      INSERT INTO job_postings (jobName, jobOverview, jobDescription, salary, country, employer_id)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `;
+    const values = [jobName, jobOverview || null, jobDescription, salary, country, employer_id];
+
+    db.query(sql, values, (err, results) => {
+      if (err) {
+        console.error('Error inserting job posting:', err);
+        return res.status(500).json({ error: 'Database error', details: err.message });
+      }
+      res.status(201).json({ message: 'Job posting created successfully', job_id: results.insertId });
+    });
   });
 });
+// API to fetch employer's status and progress
+app.get('/api/employers/status/:id', (req, res) => {
+  const employer_id = req.params.id;
+
+  const sql = 'SELECT status_id, progress_id FROM employer WHERE employer_id = ?';
+
+  db.query(sql, [employer_id], (err, results) => {
+      if (err) {
+          console.error('Error fetching employer data:', err);
+          return res.status(500).json({ error: 'Database error', details: err.message });
+      }
+
+      if (results.length === 0) {
+          return res.status(404).json({ error: 'Employer not found.' });
+      }
+
+      const { status_id, progress_id } = results[0];
+      res.status(200).json({ status_id, progress_id });
+  });
+});
+
+
 
 
 
@@ -1452,7 +1500,7 @@ app.get('/api/notifications/:employeeId', (req, res) => {
       employer.firstName AS employer_first_name,  -- Corrected to firstName
       employer.lastName AS employer_last_name,    -- Corrected to lastName
       CASE 
-        WHEN applications.status_id = 4 THEN CONCAT('You have been hired by ', employer.firstName, ' ', employer.lastName, ' for the position of ', job_postings.jobName)
+        WHEN applications.status_id = 4 THEN CONCAT('You have been accepted by ', employer.firstName, ' ', employer.lastName, ' for the position of ', job_postings.jobName)
         WHEN applications.status_id = 5 THEN CONCAT('Your application for the position of ', job_postings.jobName, ' has been rejected.')
         ELSE NULL
       END AS message,
@@ -1482,6 +1530,58 @@ app.get('/api/notifications/:employeeId', (req, res) => {
     res.json(notifications);
   });
 });
+
+app.post('/api/notifications/hired', (req, res) => {
+  const { employeeId, jobId, employerId } = req.body;
+
+  if (!employeeId || !jobId || !employerId) {
+    return res.status(400).json({ error: 'Invalid data. Employee ID, Job ID, and Employer ID are required.' });
+  }
+
+  // Update the application status to "hired" (status_id = 4)
+  const updateStatusQuery = `
+    UPDATE applications
+    SET status_id = 4
+    WHERE employee_id = ? AND job_id = ?
+  `;
+
+  db.query(updateStatusQuery, [employeeId, jobId], (updateErr) => {
+    if (updateErr) {
+      console.error('Error updating application status:', updateErr);
+      return res.status(500).json({ error: 'Failed to update application status' });
+    }
+
+    const notificationQuery = `
+      SELECT 
+        job_postings.jobName,
+        employer.firstName AS employer_first_name,
+        employer.lastName AS employer_last_name,
+        CONCAT('You have been officially hired by ', employer.firstName, ' ', employer.lastName, ' for the position of ', job_postings.jobName) AS message
+      FROM job_postings
+      INNER JOIN employer ON job_postings.employer_id = employer.employer_id
+      WHERE job_postings.job_id = ? AND employer.employer_id = ?
+    `;
+
+    db.query(notificationQuery, [jobId, employerId], (notifErr, results) => {
+      if (notifErr) {
+        console.error('Error fetching notification message:', notifErr);
+        return res.status(500).json({ error: 'Failed to fetch notification message' });
+      }
+
+      if (results.length > 0) {
+        const notificationMessage = results[0].message;
+
+        res.status(200).json({
+          message: notificationMessage,
+          status: 'success',
+        });
+      } else {
+        res.status(404).json({ error: 'No matching job or employer found for notification.' });
+      }
+    });
+  });
+});
+
 
   
 
@@ -1663,7 +1763,6 @@ app.post('/api/employees/:employeeId/submit-file', upload.single('file'), async 
 
 
 
-
 // Endpoint for uploading the medical certificate
 app.post('/api/users/:employee_id/medical-certificate', upload.single('medicalCertificate'), (req, res) => {
   const employeeId = req.params.employee_id;
@@ -1752,6 +1851,71 @@ app.post('/api/users/:employee_id/tesda-certificate', upload.single('tesdaCertif
       res.status(200).send({ message: 'TESDA certificate uploaded and progress updated successfully' });
     });
   });
+});
+
+// Check if job can be edited and update the job_postings table
+app.put("/api/job_postings/:job_id", async (req, res) => {
+  const jobId = req.params.job_id;
+  const {
+    jobName,
+    jobOverview,
+    jobDescription,
+    salary,
+    country,
+    datePosted,
+    employer_id,
+  } = req.body;
+
+  try {
+    // Check if there are any applications linked to the job_id
+    const [applications] = await db.promise().query(
+      "SELECT * FROM applications WHERE job_id = ?",
+      [jobId]
+    );
+
+    if (applications.length > 0) {
+      // If there are applications, reject the edit request
+      return res.status(400).json({
+        success: false,
+        message: "Cannot edit job. An employee has already applied.",
+      });
+    }
+
+    // Update the job_postings table
+    const [result] = await db.promise().query(
+      `UPDATE job_postings
+       SET jobName = ?, jobOverview = ?, jobDescription = ?, salary = ?, country = ?, datePosted = ?, employer_id = ?
+       WHERE job_id = ?`,
+      [
+        jobName,
+        jobOverview,
+        jobDescription,
+        salary,
+        country,
+        datePosted,
+        employer_id,
+        jobId,
+      ]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Job not found or no changes were made.",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Job updated successfully.",
+    });
+  } catch (error) {
+    console.error("Error updating job:", error);
+    res.status(500).json({
+      success: false,
+      message: "An error occurred while updating the job.",
+    });
+  }
 });
 
 

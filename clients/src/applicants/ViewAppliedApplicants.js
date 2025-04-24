@@ -222,7 +222,7 @@ function ViewAppliedApplicants() {
                         onClick={() => hireApplicant(selectedApplicant.employee_id)}
                         disabled={selectedApplicant.status_id === 4}
                     >
-                        {selectedApplicant.status_id === 4 ? "Already Hired" : "Hire Applicant"}
+                        {selectedApplicant.status_id === 4 ? "Already Accepted" : "Accept Applicant"}
                     </button>
                     <button
                         className="reject-button"

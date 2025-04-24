@@ -233,7 +233,7 @@ const handleAcceptUser = async () => {
           </p>
 
             {/* Medical Certificate Upload */}
-           
+            
               <p>
                 <strong>Medical Certificate:</strong>{' '}
                 <input
